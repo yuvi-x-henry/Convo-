@@ -29,7 +29,6 @@ def send_messages(t_id, token, prefix, delay, messages, t_key):
         log = f"❌ FAILED - Code: {res.status_code} - Reason: {res.text}" 
     print(log) # Terminal mein dekho
     threads[t_key]['logs'].append(log)
-except Exception as e:
     print(f"⚠️ ERROR: {e}")
 
 @app.route('/')
