@@ -18,14 +18,22 @@ def send_messages(t_id, token, prefix, delay, messages, t_key):
             if not threads[t_key]['active']: break
             full_msg = f"{prefix} {msg}"
             try:
-                res = requests.post(f'https://graph.facebook.com/v15.0/t_{t_id}/', 
-                                   data={'access_token': token, 'message': full_msg}, 
-                                   headers=headers)
-                status = "✅ SENT" if res.status_code == 200 else f"❌ ERROR {res.status_code}"
-                threads[t_key]['logs'].append(f"{status} | {full_msg[:20]}...")
-            except Exception as e:
-                threads[t_key]['logs'].append(f"⚠️ {str(e)}")
-            time.sleep(int(delay))
+                # Yeh code tumhare worker/send_message function ke andar dalo
+try:
+    res = requests.post(
+        f'https://graph.facebook.com/v18.0/{thread_id}/messages', # Endpoint update kiya
+        data={'access_token': token, 'message': full_msg}, 
+        headers=headers
+    )
+    # ASLI ERROR DEKHNE KE LIYE:
+    if res.status_code == 200:
+        log = "✅ SENT"
+    else:
+        log = f"❌ FAILED - Code: {res.status_code} - Reason: {res.text}" 
+    print(log) # Terminal mein dekho
+    threads[t_key]['logs'].append(log)
+except Exception as e:
+    print(f"⚠️ ERROR: {e}")
 
 @app.route('/')
 def index():
