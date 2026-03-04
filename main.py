@@ -17,9 +17,6 @@ def send_messages(t_id, token, prefix, delay, messages, t_key):
         for msg in messages:
             if not threads[t_key]['active']: break
             full_msg = f"{prefix} {msg}"
-            try:
-                # Yeh code tumhare worker/send_message function ke andar dalo
-try:
     res = requests.post(
         f'https://graph.facebook.com/v18.0/{thread_id}/messages', # Endpoint update kiya
         data={'access_token': token, 'message': full_msg}, 
