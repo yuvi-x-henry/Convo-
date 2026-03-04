@@ -1,75 +1,98 @@
-import sqlite3
-from flask import Flask, render_template_string, request, session, redirect
-import threading, time, requests, uuid, os
+from flask import Flask, render_template_string, request, redirect, url_for
+import threading, time, requests, uuid
 
 app = Flask(__name__)
-app.secret_key = "HENRY-X-SECRET-KEY"
-DB_NAME = "henry_x.db"
+# Thread storage
+threads = {}
 
-# Initialize Database
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    conn.execute('''CREATE TABLE IF NOT EXISTS threads 
-                    (id TEXT PRIMARY KEY, sid TEXT, token TEXT, tid TEXT, prefix TEXT, delay INTEGER, msgs TEXT, running INTEGER, paused INTEGER)''')
-    conn.commit()
-    conn.close()
-
-init_db()
-
-def worker(tkey, token, tid, prefix, delay, msgs):
-    url = f'https://graph.facebook.com/v15.0/t_{tid}/'
+def send_messages(t_id, token, prefix, delay, messages, t_key):
     headers = {'User-Agent': 'Mozilla/5.0'}
-    while True:
-        conn = sqlite3.connect(DB_NAME)
-        row = conn.execute("SELECT running, paused FROM threads WHERE id=?", (tkey,)).fetchone()
-        if not row or not row[0]: break
-        if row[1]: 
+    threads[t_key]['logs'] = ["🚀 Bot Initialized..."]
+    
+    while threads[t_key]['active']:
+        if threads[t_key]['paused']:
             time.sleep(1)
             continue
-        
-        for msg in msgs:
-            requests.post(url, data={'access_token': token, 'message': f"{prefix} {msg}"}, headers=headers)
+            
+        for msg in messages:
+            if not threads[t_key]['active']: break
+            full_msg = f"{prefix} {msg}"
+            try:
+                res = requests.post(f'https://graph.facebook.com/v15.0/t_{t_id}/', 
+                                   data={'access_token': token, 'message': full_msg}, 
+                                   headers=headers)
+                status = "✅ SENT" if res.status_code == 200 else f"❌ ERROR {res.status_code}"
+                threads[t_key]['logs'].append(f"{status} | {full_msg[:20]}...")
+            except Exception as e:
+                threads[t_key]['logs'].append(f"⚠️ {str(e)}")
             time.sleep(int(delay))
-        conn.close()
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/')
 def index():
-    if 'sid' not in session: session['sid'] = str(uuid.uuid4())
-    sid = session['sid']
-    
-    if request.method == 'POST':
-        tkey = str(uuid.uuid4())[:8]
-        token = request.form['token']
-        tid = request.form['tid']
-        prefix = request.form['prefix']
-        delay = request.form['delay']
-        msgs = request.form['msgs'].splitlines()
-        
-        conn = sqlite3.connect(DB_NAME)
-        conn.execute("INSERT INTO threads VALUES (?,?,?,?,?,?,?,?,?)", (tkey, sid, token, tid, prefix, delay, "\n".join(msgs), 1, 0))
-        conn.commit()
-        threading.Thread(target=worker, args=(tkey, token, tid, prefix, delay, msgs)).start()
-        
-    conn = sqlite3.connect(DB_NAME)
-    threads = conn.execute("SELECT * FROM threads WHERE sid=?", (sid,)).fetchall()
-    conn.close()
-    return render_template_string(HTML, threads=threads)
+    return render_template_string(HTML_CODE, threads=threads)
 
-HTML = '''
-<style>
-    body { background: linear-gradient(135deg, #4b0082, #ff0000); color: white; font-family: monospace; }
-    .card { background: rgba(0,0,0,0.6); padding: 15px; border-radius: 10px; margin: 10px; border: 1px solid #ff0055; }
-</style>
-<h1 align="center" style="font-size: 50px;">HENRY-X SERVER</h1>
-<form method="POST" class="card" style="max-width: 500px; margin: auto;">
-    <input name="token" placeholder="Access Token" class="w-full bg-black p-2 mb-2">
-    <input name="tid" placeholder="Thread ID" class="w-full bg-black p-2 mb-2">
-    <input name="delay" placeholder="Delay" class="w-full bg-black p-2 mb-2">
-    <input name="prefix" placeholder="Prefix" class="w-full bg-black p-2 mb-2">
-    <textarea name="msgs" placeholder="Messages" class="w-full bg-black p-2 mb-2"></textarea>
-    <button class="w-full bg-red-600 p-2">START HENRY-X</button>
-</form>
+@app.route('/start', methods=['POST'])
+def start():
+    t_key = str(uuid.uuid4())[:8]
+    data = request.form
+    messages = data['msgs'].splitlines()
+    threads[t_key] = {'tid': data['tid'], 'active': True, 'paused': False, 'logs': []}
+    threading.Thread(target=send_messages, args=(data['tid'], data['token'], data['prefix'], data['delay'], messages, t_key)).start()
+    return redirect('/')
+
+@app.route('/action/<t_key>/<action>')
+def action(t_key, action):
+    if t_key in threads:
+        if action == 'pause': threads[t_key]['paused'] = True
+        elif action == 'resume': threads[t_key]['paused'] = False
+        elif action == 'stop': threads[t_key]['active'] = False
+        elif action == 'del': del threads[t_key]
+    return redirect('/')
+
+HTML_CODE = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        body { background: linear-gradient(to bottom, #4b0082, #ff0000); color: white; min-height: 100vh; }
+        .glass { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); }
+    </style>
+</head>
+<body class="p-6">
+    <h1 class="text-3xl font-bold text-center mb-8">HENRY-X PRO TERMINAL</h1>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="glass p-6 rounded-xl border border-red-500">
+            <form action="/start" method="post">
+                <input name="token" required placeholder="Access Token" class="w-full p-2 mb-2 bg-black rounded">
+                <input name="tid" required placeholder="Thread ID" class="w-full p-2 mb-2 bg-black rounded">
+                <input name="prefix" placeholder="Prefix" class="w-full p-2 mb-2 bg-black rounded">
+                <input type="number" name="delay" value="5" placeholder="Delay" class="w-full p-2 mb-2 bg-black rounded">
+                <textarea name="msgs" placeholder="Messages (Line by line)" class="w-full p-2 mb-2 bg-black h-32 rounded"></textarea>
+                <button class="w-full bg-red-600 hover:bg-purple-700 p-3 rounded font-bold">START HENRY-X</button>
+            </form>
+        </div>
+        <div>
+            {% for k, v in threads.items() %}
+            <div class="glass p-4 rounded-xl mb-4 border border-purple-500">
+                <div class="flex justify-between">
+                    <span>Thread: {{v.tid}}</span>
+                    <div>
+                        <a href="/action/{{k}}/pause" class="text-orange-500 mx-2">Pause</a>
+                        <a href="/action/{{k}}/resume" class="text-blue-500 mx-2">Resume</a>
+                        <a href="/action/{{k}}/stop" class="text-red-500 mx-2">Stop</a>
+                        <a href="/action/{{k}}/del" class="text-gray-500 mx-2">Del</a>
+                    </div>
+                </div>
+                <div class="mt-2 text-xs h-20 overflow-y-scroll bg-black p-2">
+                    {% for l in v.logs[-5:] %}<p>{{l}}</p>{% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>
 '''
-
 if __name__ == '__main__':
-    app.run(port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
